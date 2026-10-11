@@ -101,3 +101,11 @@ export function riskyNames(all, allow = []) {
 export function mask(value) {
   return value.length <= 8 ? '****' : `${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`
 }
+
+/** One .env line that holds a server secret: not public, not a known browser key, not trivial, not marked shipped-ok. */
+export function isSecretLine(v) {
+  if (v.ok) return false
+  const risky = isPublicName(v.name) && looksSecretName(stripPrefix(v.name))
+  if (isPublicName(v.name) ? !risky : looksSafeName(v.name)) return false
+  return !trivial(v.value)
+}

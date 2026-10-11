@@ -57,7 +57,7 @@ export async function scanUrl(url, secrets = []) {
     if (text === null) continue
     const isHtml = u === url || /<html|<!doctype/i.test(text.slice(0, 500))
     if (/\.map(\?|$)/.test(u)) maps++
-    for (const f of scanText(text, secrets)) findings.push({ ...f, file: u })
+    for (const f of scanText(text, secrets)) findings.push(Object.assign(f, { file: u }))
     for (const next of assetsIn(text, u, isHtml)) if (!seen.has(next)) queue.push(next)
   }
   if (maps) {

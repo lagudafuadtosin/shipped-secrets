@@ -2,7 +2,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
-import { findShapes } from './shapes.js'
+import { findShapes, withKey } from './shapes.js'
 import { loadSecrets, mask, riskyNames } from './env.js'
 
 // Where each framework puts what the browser downloads, most specific first.
@@ -67,12 +67,18 @@ const lineAt = (text, index) => text.slice(0, index).split('\n').length
  * @param {string} text
  * @param {{ name: string, value: string, source: string }[]} secrets
  */
+/** A secret value that has a known shape can be checked by --verify too. */
+export function keyOf(finding, value) {
+  const shape = findShapes(value)[0]
+  return shape && shape.match === value ? withKey(Object.assign(finding, { shapeId: shape.shape.id }), value) : finding
+}
+
 export function scanText(text, secrets) {
   const found = []
   for (const s of secrets) {
     let at = text.indexOf(s.value)
     while (at !== -1) {
-      found.push({ level: 'error', kind: 'value', what: `${s.name} from ${s.source.split(/[\\/]/).pop()}`, sample: mask(s.value), line: lineAt(text, at) })
+      found.push(keyOf({ level: 'error', kind: 'value', what: `${s.name} from ${s.source.split(/[\\/]/).pop()}`, sample: mask(s.value), line: lineAt(text, at) }, s.value))
       at = text.indexOf(s.value, at + s.value.length)
       if (found.length > 50) break
     }
@@ -80,7 +86,7 @@ export function scanText(text, secrets) {
   for (const f of findShapes(text)) {
     // A value already reported by name is not reported twice as a shape.
     if (secrets.some((s) => f.match.includes(s.value) || s.value.includes(f.match))) continue
-    found.push({ level: f.shape.level, kind: 'shape', what: f.shape.name, sample: mask(f.match), line: lineAt(text, f.index) })
+    found.push(withKey({ level: f.shape.level, kind: 'shape', what: f.shape.name, sample: mask(f.match), line: lineAt(text, f.index), shapeId: f.shape.id }, f.match))
   }
   return found
 }
@@ -110,7 +116,7 @@ export function scanProject(root, opts = {}) {
       files++
       if (file.endsWith('.map')) maps++
       const text = readFileSync(file, 'utf8')
-      for (const f of scanText(text, secrets)) findings.push({ ...f, file: relative(root, file) })
+      for (const f of scanText(text, secrets)) findings.push(Object.assign(f, { file: relative(root, file) }))
     }
   }
   if (maps) {

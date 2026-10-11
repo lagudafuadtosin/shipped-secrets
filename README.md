@@ -1,6 +1,6 @@
 # shipped-secrets
 
-Find secrets that ship to the browser.
+Find secrets that ship to the browser, or sit in your git history, and check whether they still work.
 
 Every frontend framework has a prefix that puts a setting into the JavaScript every visitor downloads: `VITE_`, `NEXT_PUBLIC_`, `REACT_APP_`, `EXPO_PUBLIC_`, `PUBLIC_`. Give a server key that prefix by mistake, or paste a key into client code, and it is public. The build works, the site works, and nobody notices until a bill or a breach. One Vite user lost about €800 when bots scraped a `VITE_GEMINI_API_KEY` from the bundle.
 
@@ -18,7 +18,7 @@ warn  .env.local:1  NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY has a public prefix, s
 2 secrets shipped to the browser, in 3 places. Rotate them: deleting a key from the code does not take it back from anyone who already downloaded it.
 ```
 
-Secrets are always masked in the output. Nothing is sent anywhere.
+Secrets are always masked in the output. Nothing is sent anywhere unless you ask for `--verify`.
 
 ## What it checks
 
@@ -80,13 +80,43 @@ Add `# shipped-ok` to the line in your `.env` file:
 NEXT_PUBLIC_MAPS_KEY=AIza...   # shipped-ok, restricted to our domain
 ```
 
-or pass `--allow NAME`. `--json` gives the findings as JSON.
+or pass `--allow NAME`. `--json` gives the findings as JSON, masked like the text output.
+
+## Git history
+
+```sh
+npx shipped-secrets --history
+```
+
+A key that was committed once is in every clone of the repository, even after you delete it. `--history` reads every commit on every branch and reports:
+
+- known key shapes in any line ever added
+- your current `.env` secret values in any file ever committed, so a key you moved out of the code is still caught where it used to be
+- any `.env` file ever committed with a server secret in it. A public build switch like `VITE_EDITION=web` is not reported.
+
+Each finding names the file, line, commit and date. Run it without a build and it searches history only.
+
+## Is the key still live?
+
+```sh
+npx shipped-secrets --verify
+```
+
+For each key it finds, it asks that key's own provider, with a read-only call, whether the key still works:
+
+```
+ERROR dist/assets/index-3f9a.js:1  Stripe secret or restricted key  [sk_l…x2 (107 chars)]  (LIVE, rotate now)
+ERROR dist/assets/index-3f9a.js:1  GitHub token  [ghp_…9Q (40 chars)]  (dead)
+```
+
+Checked: Stripe (`/v1/balance`), OpenAI and Anthropic (list models), GitHub (`/user`), SendGrid, Mailgun, Resend, Slack (`auth.test`), and Supabase service_role keys (your project's own API, read from the key). Others are marked "not checked". The key goes to its own provider over HTTPS and nowhere else, and only when you pass `--verify`. Live keys are listed first.
+
+`--all` is `--history` and `--verify` together.
 
 ## What it does not do
 
-- It does not test whether a key is live. That means sending your keys to the providers, which TruffleHog does if you want it.
-- It does not scan git history. Gitleaks does that well.
-- It does not fix anything. A shipped secret must be rotated at the provider: deleting it from the code does not take it back.
+- It does not fix anything. A shipped or committed secret must be rotated at the provider: deleting it from the code, or rewriting history, does not take it back from anyone who already has it.
+- `--verify` does not check AWS, Twilio, private keys or database URLs: checking those safely needs more than one harmless call.
 
 ## Tested
 
@@ -99,6 +129,8 @@ or pass `--allow NAME`. `--json` gives the findings as JSON.
 - a server-only secret in Next.js server code is not reported
 - the same build served locally is caught by URL, with and without local `.env` values
 - the Vite plugin stops a build with a secret and passes a clean one
+
+The unit tests also build a git repository with a key committed and then deleted and check `--history` finds it, and check `--verify` against a stand-in provider (live, dead and unreachable). Full keys are never in the JSON output.
 
 Fake keys are made while the tests run, so nothing secret-shaped is ever committed.
 

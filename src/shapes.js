@@ -48,3 +48,8 @@ export function findShapes(text) {
   }
   return out
 }
+
+/** Keeps the full key on a finding for --verify, hidden from JSON and from printing. */
+export function withKey(finding, key) {
+  return Object.defineProperty(finding, 'key', { value: key, enumerable: false })
+}

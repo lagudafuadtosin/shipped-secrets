@@ -89,4 +89,58 @@ test('a project scan reads browser output, skips server output, reads Next.js pr
     'warn name .env:2',
     'warn sourcemap .next/static',
   ])
+  // --verify needs the full key on each finding, hidden from JSON.
+  const shaped = r.findings.find((f) => f.kind === 'shape')
+  assert.ok(shaped.shapeId === 'supabase-service-role' && typeof shaped.key === 'string' && !JSON.stringify(r).includes(shaped.key))
+})
+
+test('git history: a key committed then deleted is found, so is a server secret in any .env ever committed, a public build switch and .env.example are not', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { rmSync } = await import('node:fs')
+  const { scanHistory } = await import('../src/index.js')
+  const dir = mkdtempSync(join(tmpdir(), 'ss-git-'))
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...a], { cwd: dir, stdio: 'pipe' })
+  git('init', '-q')
+  writeFileSync(join(dir, '.env'), `VITE_EDITION=web\nGITHUB_TOKEN=${fake.github}\n`)
+  writeFileSync(join(dir, '.env.example'), 'STRIPE_SECRET_KEY=\n')
+  writeFileSync(join(dir, 'config.js'), `export const stripe = "${fake.stripe}"\n`)
+  git('add', '-A')
+  git('commit', '-qm', 'first')
+  rmSync(join(dir, '.env'))
+  writeFileSync(join(dir, 'config.js'), 'export const stripe = process.env.STRIPE_SECRET_KEY\n')
+  git('add', '-A')
+  git('commit', '-qm', 'remove the keys')
+  // Today the key lives only in an ignored .env.local, as it should.
+  writeFileSync(join(dir, '.gitignore'), '.env.local\n')
+  writeFileSync(join(dir, '.env.local'), `STRIPE_SECRET_KEY=${fake.stripe}\n`)
+  const { secrets } = loadSecrets(dir, { env: {} })
+  const r = await scanHistory(dir, secrets)
+  assert.equal(r.commits, 2)
+  const sum = r.findings.map((f) => `${f.kind} ${f.file}${f.line ? ':' + f.line : ''}`).sort()
+  assert.deepEqual(sum, ['history-env .env:2', 'history-value config.js:1'])
+  assert.ok(r.findings.every((f) => f.commit && f.date))
+  assert.ok(!JSON.stringify(r).includes(fake.stripe) && !JSON.stringify(r).includes(fake.github), 'full keys never in JSON')
+  assert.equal(await scanHistory(mkdtempSync(join(tmpdir(), 'ss-nogit-'))), null)
+})
+
+test('verify: asks only the key\'s own provider, live on 200, dead on 401, unknown when it cannot ask', async () => {
+  const { verifyFindings } = await import('../src/index.js')
+  const asked = []
+  const fetch = async (url, init) => {
+    asked.push(new URL(url).host)
+    if (url.includes('stripe')) return new Response('{}', { status: 200 })
+    if (url.includes('github')) return new Response('{}', { status: 401 })
+    if (url.includes('abcdefgh.supabase.co')) return new Response('{}', { status: 200 })
+    throw new Error('offline')
+  }
+  const text = [fake.stripe, fake.github, fake.openai, fake.aws, fake.serviceRole].join('\n')
+  const findings = scanText(text, [])
+  await verifyFindings(findings, fetch)
+  const by = Object.fromEntries(findings.map((f) => [f.shapeId, f.verified]))
+  assert.deepEqual(by, { 'stripe-secret': 'live', 'github-token': 'dead', openai: 'unknown', 'aws-access-key': 'unknown', 'supabase-service-role': 'live' })
+  assert.deepEqual(asked.sort(), ['abcdefgh.supabase.co', 'api.github.com', 'api.openai.com', 'api.stripe.com'])
+  const { report } = await import('../src/index.js')
+  const out = report({ findings, files: 1, verified: true })
+  assert.ok(out.includes('LIVE, rotate now') && out.includes('2 keys still work'))
+  assert.ok(!out.includes(fake.stripe) && !JSON.stringify(findings).includes(fake.stripe))
 })

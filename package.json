@@ -1,7 +1,7 @@
 {
   "name": "shipped-secrets",
   "version": "1.0.0",
-  "description": "Find secrets that ship to the browser: your real .env values, known key shapes and risky public env names, in any framework's build output, source maps included.",
+  "description": "Find secrets that ship to the browser or sit in git history, and check whether they still work: your real .env values, known key shapes and risky public env names, in any framework's build output, source maps included.",
   "type": "module",
   "exports": {
     ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
@@ -14,7 +14,7 @@
     "test": "node --test test/*.test.js",
     "test:apps": "node test/apps/run.mjs"
   },
-  "keywords": ["secrets", "security", "vite", "nextjs", "env", "bundle", "leak", "supabase", "stripe", "ci"],
+  "keywords": ["secrets", "security", "vite", "nextjs", "env", "bundle", "leak", "supabase", "stripe", "ci", "git-history", "verify"],
   "author": "Fuad Laguda",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/lagudafuadtosin/shipped-secrets.git" },
