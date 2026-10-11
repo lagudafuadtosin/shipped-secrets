@@ -14,7 +14,7 @@
     "test": "node --test test/*.test.js",
     "test:apps": "node test/apps/run.mjs"
   },
-  "keywords": ["secrets", "security", "vite", "nextjs", "env", "bundle", "leak", "supabase", "stripe", "ci", "git-history", "verify"],
+  "keywords": ["secrets", "security", "vite", "vite-plugin", "nextjs", "env", "bundle", "leak", "supabase", "stripe", "ci", "git-history", "verify"],
   "author": "Fuad Laguda",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/lagudafuadtosin/shipped-secrets.git" },
