@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// shipped-secrets [folder or URL] [--dir <path>] [--allow NAME] [--history] [--verify] [--all] [--strict] [--json]
+// shipped-secrets [folder or URL] [--dir <path>] [--allow NAME] [--history] [--verify] [--deep] [--all] [--strict] [--json]
 //
 // With no argument: finds the browser output in this project (dist, .next/static,
 // build, out, ...), reads this project's .env files, and looks for your real
@@ -25,6 +25,7 @@ names that look secret, and source maps left public.
 
   --history       also search every commit in git history, and flag any .env file ever committed
   --verify        ask each found key's own provider whether it still works (sends the key to that provider only)
+  --deep          also look for a secret split into pieces (two or more long random pieces of it in one file)
   --all           --history and --verify
   --dir <path>    scan this folder instead of finding the build output (repeatable)
   --allow NAME    a variable that is fine to ship (repeatable). Or add "# shipped-ok" to its .env line
@@ -37,14 +38,15 @@ const target = positional[0] ?? '.'
 const allow = values('--allow')
 const history = flag('--history') || flag('--all')
 const verify = flag('--verify') || flag('--all')
+const deep = flag('--deep')
 let result
 if (/^https?:\/\//.test(target)) {
   const { secrets } = loadSecrets(process.cwd(), { env: process.env, allow })
-  result = await scanUrl(target, secrets)
+  result = await scanUrl(target, secrets, { deep })
 } else {
   const root = resolve(target)
   const dirs = values('--dir')
-  result = scanProject(root, { dirs: dirs.length ? dirs.map((d) => resolve(root, d)) : undefined, allow })
+  result = scanProject(root, { dirs: dirs.length ? dirs.map((d) => resolve(root, d)) : undefined, allow, deep })
   if (!dirs.length && !result.dirs.length && !history) {
     console.error('No build output found (dist, build, out, .next/static, ...). Build first, pass --dir <path>, or use --history.')
     process.exit(2)

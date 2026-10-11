@@ -74,25 +74,73 @@ export function keyOf(finding, value) {
 }
 
 /**
- * The value as written, and base64 of it, so a key put through btoa() or
- * Buffer.toString('base64') on its way into the bundle is still found. The
- * padding is dropped, so it matches with or without the trailing "=".
+ * The value as written and the common ways it gets encoded on its way into a
+ * bundle: base64 (padding dropped, so it matches with or without the "="), hex,
+ * URL-encoded, and with "/" escaped the way some JSON and RSC payloads write it.
+ * Each is an exact transform of the real value, so none of them can raise a
+ * false alarm.
  */
 export function forms(value) {
-  const b64 = Buffer.from(value, 'utf8').toString('base64').replace(/=+$/, '')
-  const url = b64.replace(/\+/g, '-').replace(/\//g, '_')
-  return [{ text: value, how: '' }, { text: b64, how: ', base64' }, ...(url !== b64 ? [{ text: url, how: ', base64url' }] : [])]
+  const out = [{ text: value, how: '' }]
+  const add = (text, how) => { if (text !== value && !out.some((f) => f.text === text)) out.push({ text, how }) }
+  const buf = Buffer.from(value, 'utf8')
+  const b64 = buf.toString('base64').replace(/=+$/, '')
+  add(b64, ', base64')
+  add(b64.replace(/\+/g, '-').replace(/\//g, '_'), ', base64url')
+  add(buf.toString('hex'), ', hex')
+  add(buf.toString('hex').toUpperCase(), ', hex')
+  add(encodeURIComponent(value), ', URL-encoded')
+  if (value.includes('/')) {
+    add(value.replace(/\//g, '\\/'), ', escaped')
+    add(value.replace(/\//g, '\\u002f'), ', escaped')
+  }
+  return out
 }
 
-export function scanText(text, secrets) {
+const PIECE = 10
+
+/**
+ * For --deep: pieces of the value, to find a secret split up so that the whole
+ * of it never appears. Only from values long enough to have a random part, and
+ * only pieces that look random (a digit, a letter, eight different characters),
+ * so a common start like "sk_live_" or "https://" is never one of them.
+ */
+export function pieces(value) {
+  if (value.length < 24) return []
+  const out = []
+  for (let i = 0; i + PIECE <= value.length; i += PIECE) {
+    const p = value.slice(i, i + PIECE)
+    if (/\d/.test(p) && /[A-Za-z]/.test(p) && new Set(p).size >= 8) out.push(p)
+  }
+  return out
+}
+
+/**
+ * @param {string} text
+ * @param {{ name: string, value: string, source: string }[]} secrets
+ * @param {{ deep?: boolean }} [opts]
+ */
+export function scanText(text, secrets, opts = {}) {
   const found = []
   for (const s of secrets) {
+    const from = s.source.split(/[\\/]/).pop()
+    let whole = false
     for (const { text: form, how } of forms(s.value)) {
       let at = text.indexOf(form)
       while (at !== -1) {
-        found.push(keyOf({ level: 'error', kind: 'value', what: `${s.name} from ${s.source.split(/[\\/]/).pop()}${how}`, sample: mask(s.value), line: lineAt(text, at) }, s.value))
+        whole = true
+        found.push(keyOf({ level: 'error', kind: 'value', what: `${s.name} from ${from}${how}`, sample: mask(s.value), line: lineAt(text, at) }, s.value))
         at = text.indexOf(form, at + form.length)
         if (found.length > 50) break
+      }
+    }
+    // Two or more random pieces of one secret in the same file, and never the
+    // whole of it: split on purpose. A single piece is left alone.
+    if (opts.deep && !whole) {
+      const all = pieces(s.value)
+      const hits = all.map((p) => text.indexOf(p)).filter((at) => at !== -1)
+      if (hits.length >= 2) {
+        found.push(keyOf({ level: 'error', kind: 'pieces', what: `${s.name} from ${from}, in pieces (${hits.length} of ${all.length} found)`, sample: mask(s.value), line: lineAt(text, Math.min(...hits)) }, s.value))
       }
     }
   }
@@ -108,7 +156,7 @@ export function scanText(text, secrets) {
  * Scans a project folder: its env files for risky names, and its browser output
  * for real secret values and known key shapes.
  * @param {string} root
- * @param {{ dirs?: string[], allow?: string[], env?: Record<string, string | undefined>, envFiles?: string[] }} [opts]
+ * @param {{ dirs?: string[], allow?: string[], env?: Record<string, string | undefined>, envFiles?: string[], deep?: boolean }} [opts]
  */
 export function scanProject(root, opts = {}) {
   const { secrets, all } = loadSecrets(root, { env: opts.env ?? process.env, files: opts.envFiles, allow: opts.allow })
@@ -129,7 +177,7 @@ export function scanProject(root, opts = {}) {
       files++
       if (file.endsWith('.map')) maps++
       const text = readFileSync(file, 'utf8')
-      for (const f of scanText(text, secrets)) findings.push(Object.assign(f, { file: relative(root, file) }))
+      for (const f of scanText(text, secrets, { deep: opts.deep })) findings.push(Object.assign(f, { file: relative(root, file) }))
     }
   }
   if (maps) {

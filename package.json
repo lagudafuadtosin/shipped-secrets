@@ -1,6 +1,6 @@
 {
   "name": "shipped-secrets",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Find secrets that ship to the browser or sit in git history, and check whether they still work: your real .env values, known key shapes and risky public env names, in any framework's build output, source maps included.",
   "type": "module",
   "exports": {

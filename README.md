@@ -22,7 +22,7 @@ Secrets are always masked in the output. Nothing is sent anywhere unless you ask
 
 ## What it checks
 
-1. **Your real secret values.** It reads your `.env*` files (not `.env.example`), Cloudflare's `.dev.vars`, and in CI the environment variables whose names look secret. Then it searches every file the browser gets, source maps included, for each server value. This catches any secret, whatever it looks like, including your own tokens that no pattern knows. It also looks for each value in base64 (standard and URL-safe, with or without padding), so a key put through `btoa()` on its way into the bundle is still found.
+1. **Your real secret values.** It reads your `.env*` files (not `.env.example`), Cloudflare's `.dev.vars`, and in CI the environment variables whose names look secret. Then it searches every file the browser gets, source maps included, for each server value. This catches any secret, whatever it looks like, including your own tokens that no pattern knows. It also looks for each value the common ways it gets encoded on its way into a bundle: base64 (standard and URL-safe, with or without padding), hex, URL-encoded, and with `/` escaped as `\/` or `/` the way some JSON and RSC payloads write it. Each of these is an exact transform of your real value, so none of them can raise a false alarm.
 2. **Known key shapes**, for keys that are not in your local files: Stripe secret and restricted keys, Supabase service_role keys and `sb_secret_` keys, OpenAI, Anthropic, AWS, GitHub, SendGrid, Mailgun, Resend, Twilio, Slack, private keys, and database URLs with a password. Google API keys are a warning, because Maps and Firebase browser keys are meant to be public.
 3. **Supabase keys are decoded.** The anon key and the service_role key look the same. `shipped-secrets` reads the role inside the key, so the anon key is never reported and the service_role key always is.
 4. **Risky names.** A public prefix on a name that sounds secret (`VITE_STRIPE_SECRET`, `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`) is a warning. Names meant for browsers (anon key, publishable key, client ID, client token, site key) are not.
@@ -113,9 +113,18 @@ Checked: Stripe (`/v1/balance`), OpenAI and Anthropic (list models), GitHub (`/u
 
 `--all` is `--history` and `--verify` together.
 
+## A secret split into pieces
+
+```sh
+npx shipped-secrets --deep
+```
+
+A plain split like `"sk_live_" + "..."` is usually caught already, because minifiers join string pieces back together. `--deep` is for a split the minifier cannot undo, such as pieces in an array joined when the code runs. It cuts each `.env` value into pieces of 10 characters, keeps only the ones that look random (a digit, a letter, eight different characters, so never a common start like `sk_live_` or `https://`), and reports a file that holds two or more of them but never the whole value. It is off by default to keep the default run free of false alarms. The Vite plugin takes it too: `shippedSecrets({ deep: true })`.
+
 ## What it does not do
 
-- It does not find a secret that was split into pieces, encrypted, or encoded some other way before it reached the bundle. It matches the exact value, its base64 forms and the known key shapes.
+- It does not find an encrypted secret, or one encoded in a way not listed above. If the browser can decrypt it, so can anyone, so it belongs on the server anyway.
+- `--deep` does not find a secret cut into pieces shorter than 10 characters, and it is not used on git history.
 - It does not fix anything. A shipped or committed secret must be rotated at the provider: deleting it from the code, or rewriting history, does not take it back from anyone who already has it.
 - `--verify` does not check AWS, Twilio, private keys or database URLs: checking those safely needs more than one harmless call.
 

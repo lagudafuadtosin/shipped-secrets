@@ -153,7 +153,7 @@ test('base64: a secret put through btoa or base64url on its way into the bundle 
   const b64 = Buffer.from(value).toString('base64')
   const url = Buffer.from(value).toString('base64url')
   assert.ok(b64.includes('+') && b64.includes('/'), 'the test value must exercise + and /')
-  assert.deepEqual(forms(value).map((f) => f.how), ['', ', base64', ', base64url'])
+  assert.deepEqual(forms(value).map((f) => f.how).slice(0, 3), ['', ', base64', ', base64url'])
   const found = scanText(`var a="${b64}";\nvar b="${url}";\nvar c="${b64.replace(/=+$/, '')}x"`, secrets)
   assert.deepEqual(found.map((f) => `${f.line} ${f.what}`), ['1 API_TOKEN from .env, base64', '3 API_TOKEN from .env, base64', '2 API_TOKEN from .env, base64url'])
   assert.ok(found.every((f) => f.sample === mask(value)), 'the report masks the real value, not the encoded one')

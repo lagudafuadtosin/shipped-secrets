@@ -44,7 +44,7 @@ function assetsIn(text, base, isHtml) {
  * @param {string} url
  * @param {{ name: string, value: string, source: string }[]} [secrets] local values to look for too
  */
-export async function scanUrl(url, secrets = []) {
+export async function scanUrl(url, secrets = [], opts = {}) {
   const findings = []
   const seen = new Set()
   const queue = [url]
@@ -57,7 +57,7 @@ export async function scanUrl(url, secrets = []) {
     if (text === null) continue
     const isHtml = u === url || /<html|<!doctype/i.test(text.slice(0, 500))
     if (/\.map(\?|$)/.test(u)) maps++
-    for (const f of scanText(text, secrets)) findings.push(Object.assign(f, { file: u }))
+    for (const f of scanText(text, secrets, { deep: opts.deep })) findings.push(Object.assign(f, { file: u }))
     for (const next of assetsIn(text, u, isHtml)) if (!seen.has(next)) queue.push(next)
   }
   if (maps) {
