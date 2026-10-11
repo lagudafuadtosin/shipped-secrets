@@ -73,14 +73,27 @@ export function keyOf(finding, value) {
   return shape && shape.match === value ? withKey(Object.assign(finding, { shapeId: shape.shape.id }), value) : finding
 }
 
+/**
+ * The value as written, and base64 of it, so a key put through btoa() or
+ * Buffer.toString('base64') on its way into the bundle is still found. The
+ * padding is dropped, so it matches with or without the trailing "=".
+ */
+export function forms(value) {
+  const b64 = Buffer.from(value, 'utf8').toString('base64').replace(/=+$/, '')
+  const url = b64.replace(/\+/g, '-').replace(/\//g, '_')
+  return [{ text: value, how: '' }, { text: b64, how: ', base64' }, ...(url !== b64 ? [{ text: url, how: ', base64url' }] : [])]
+}
+
 export function scanText(text, secrets) {
   const found = []
   for (const s of secrets) {
-    let at = text.indexOf(s.value)
-    while (at !== -1) {
-      found.push(keyOf({ level: 'error', kind: 'value', what: `${s.name} from ${s.source.split(/[\\/]/).pop()}`, sample: mask(s.value), line: lineAt(text, at) }, s.value))
-      at = text.indexOf(s.value, at + s.value.length)
-      if (found.length > 50) break
+    for (const { text: form, how } of forms(s.value)) {
+      let at = text.indexOf(form)
+      while (at !== -1) {
+        found.push(keyOf({ level: 'error', kind: 'value', what: `${s.name} from ${s.source.split(/[\\/]/).pop()}${how}`, sample: mask(s.value), line: lineAt(text, at) }, s.value))
+        at = text.indexOf(form, at + form.length)
+        if (found.length > 50) break
+      }
     }
   }
   for (const f of findShapes(text)) {

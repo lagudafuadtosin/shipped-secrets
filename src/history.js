@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { findShapes, withKey } from './shapes.js'
 import { isSecretLine, mask, parseDotenv } from './env.js'
-import { keyOf } from './scan.js'
+import { forms, keyOf } from './scan.js'
 
 const ENV_FILE = /(^|\/)(\.env(\.[^/]*)?|\.dev\.vars)$/
 const SAFE_ENV = /\.(example|sample|template|dist|defaults)$/i
@@ -70,8 +70,10 @@ export function scanHistory(root, secrets = []) {
         return
       }
       for (const s of secrets) {
-        if (added.includes(s.value)) {
-          add(keyOf({ level: 'error', kind: 'history-value', file, line, commit: commit.slice(0, 8), date, what: `${s.name} was committed in ${file} (${commit.slice(0, 8)}, ${date})`, sample: mask(s.value) }, s.value))
+        for (const { text: form, how } of forms(s.value)) {
+          if (added.includes(form)) {
+            add(keyOf({ level: 'error', kind: 'history-value', file, line, commit: commit.slice(0, 8), date, what: `${s.name}${how ? ` (${how.slice(2)})` : ''} was committed in ${file} (${commit.slice(0, 8)}, ${date})`, sample: mask(s.value) }, s.value))
+          }
         }
       }
       for (const f of findShapes(added)) {

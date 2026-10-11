@@ -144,3 +144,33 @@ test('verify: asks only the key\'s own provider, live on 200, dead on 401, unkno
   assert.ok(out.includes('LIVE, rotate now') && out.includes('2 keys still work'))
   assert.ok(!out.includes(fake.stripe) && !JSON.stringify(findings).includes(fake.stripe))
 })
+
+test('base64: a secret put through btoa or base64url on its way into the bundle is still found, and named as such', async () => {
+  const { forms } = await import('../src/scan.js')
+  // ">>>" and "???" encode to "Pj4+" and "Pz8/", so both the + and / of standard base64 appear.
+  const value = 'tok_' + rnd(20) + '>>>???'
+  const secrets = [{ name: 'API_TOKEN', value, source: '.env' }]
+  const b64 = Buffer.from(value).toString('base64')
+  const url = Buffer.from(value).toString('base64url')
+  assert.ok(b64.includes('+') && b64.includes('/'), 'the test value must exercise + and /')
+  assert.deepEqual(forms(value).map((f) => f.how), ['', ', base64', ', base64url'])
+  const found = scanText(`var a="${b64}";\nvar b="${url}";\nvar c="${b64.replace(/=+$/, '')}x"`, secrets)
+  assert.deepEqual(found.map((f) => `${f.line} ${f.what}`), ['1 API_TOKEN from .env, base64', '3 API_TOKEN from .env, base64', '2 API_TOKEN from .env, base64url'])
+  assert.ok(found.every((f) => f.sample === mask(value)), 'the report masks the real value, not the encoded one')
+  assert.equal(scanText(`var a="${Buffer.from('something else entirely').toString('base64')}"`, secrets).length, 0)
+})
+
+test('base64 in git history: a key committed in base64 form is found', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { scanHistory } = await import('../src/index.js')
+  const dir = mkdtempSync(join(tmpdir(), 'ss-git64-'))
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...a], { cwd: dir, stdio: 'pipe' })
+  const value = 'tok_' + rnd(26)
+  git('init', '-q')
+  writeFileSync(join(dir, 'config.js'), `export const t = atob("${Buffer.from(value).toString('base64')}")\n`)
+  git('add', '-A')
+  git('commit', '-qm', 'hide it, badly')
+  const r = await scanHistory(dir, [{ name: 'API_TOKEN', value, source: '.env' }])
+  assert.equal(r.findings.length, 1)
+  assert.match(r.findings[0].what, /^API_TOKEN \(base64\) was committed in config\.js/)
+})
